@@ -286,4 +286,4 @@
     type: 'char'
   };
 
-}(jQuery));
+}(jqueryAlike));

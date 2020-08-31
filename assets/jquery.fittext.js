@@ -40,4 +40,4 @@
 
   };
 
-})( jQuery );
+})( jqueryAlike );
