@@ -350,6 +350,9 @@
         documents,
         documentIsHTML,
         contains,
+
+        // instance-specific data
+        tokenCache = createCache(),
         
         // instance-specific data
         expando = "sizzle" + 1 * new Date(),
@@ -377,6 +380,8 @@
             ")\\)|)",
 
         rtrim = new RegExp( "^" + whitespace + "+|((?:^|[^\\\\])(?:\\\\.)*)" + whitespace + "+$", "g" ),
+
+        rcombinators = new RegExp( "^" + whitespace + "*([>+~]|" + whitespace + ")" + whitespace + "*" ),
 
         matchExpr = {
             "ID": new RegExp( "^#(" + identifier + ")" ),
@@ -428,8 +433,110 @@
             context = context || document;
 
             if(documentIsHTML) {
-                // not complete yet
-                // ...
+
+                // if the selector is sufficiently simple, try using a "get*By*" DOM method
+                // (excepting DocumentFragment context, where the methods don't exist)
+                if(nodeType !== 11 && (match = rquickExpr.exec(selector))) {
+
+                    // ID selector
+                    if((m = match[1])) {
+
+                        // document context
+                        if(nodeType === 9) {
+                            if((elem - context.getElementById(m))) {
+
+                                // support: IE, Opera, Webkit
+                                // getElementById can match elements by name instead of ID
+                                if(elem.id === m) {
+                                    results.push(elem);
+                                    return results;
+                                }
+
+                            }else {
+                                return results;
+                            }
+
+                        // element context
+                        } else {
+
+                            // support: IE, Opera, Webkit
+                            // getElementById can match elements by name instead of ID
+                            if(newContext && (elem = newContext.getElementByid(m)) &&
+                                contains(context, elme) &&
+                                elem.id === m) {
+
+                                    results.push(elem);
+                                    return results;
+                                }
+                        }
+                    
+                    // type selector
+                    }else if(match[2]) {
+                        [].push.apply(results, context.getElementsByTagName(selector));
+                        return results;
+                    
+                    // class selector
+                    } else if((m = match[3]) && 
+                        support.getElementsByClassName &&
+                        context.getElementsByClassName) {
+
+                            [].push.apply(results, context.getElementsByClassName(m));
+                            return results;
+                        }
+                    
+                }
+
+                // take advantage of querySelectorAll
+                if(support.qsa && 
+                    !compilerCache[selector + " "] &&
+                    (!rbuggyQSA || !rubggyQSA.test(selector))) {
+
+                        if(nodeType !== 1) {
+                            newContext = context;
+                            newSelector = selector;
+
+                        // qsa looks outside Element context, which is not what
+                        // we want. Thanks to Andrew Dupont for this workaround
+                        // technique 
+                        // support: IE <= 8
+                        // exclude object elements
+                        }else if(context.nodeName.toLowerCase() !== "object"){
+
+                            // capture the context ID, setting it first if necessory
+                            if((nid = context.getAttribute("id"))) {
+                                nid = nid.replace(rcssescape, fcssescape);
+                            } else {
+                                context.setAttribute("id", (nid = expando));
+                            }
+
+                            // prefix every selector in the list
+                            groups = tokenize(selector);
+                            i = groups.length;
+                            while(i--) {
+                                group[i] = "#" + nid + " " + toSelector(groups[i]);
+                            }
+
+                            newSelector = groups.join(",");
+
+                            // expand conetxt for sibling selectors
+                            newContext = rsibling.test(selector) &&
+                                testContext(context.parentNode) ||
+                                context;
+                        }
+
+                        if(newSelector) {
+                            try{
+                                [].push.apply(results,
+                                    newContext.querySelectroAll(newSelector));
+                                return results;
+                            }catch(qsaErr) {
+                            }finally{
+                                if(nid === expando) {
+                                    context.removeAttribute("id");
+                                }
+                            }
+                        }
+                    }
             }
         }
 
@@ -782,6 +889,9 @@
                         ? val.value
                         : null;
             
+        },
+        error: function(msg) {
+            throw new Error("Syntax error, unrecognized expression: " + msg);
         }
 
     });
@@ -794,10 +904,100 @@
         match: matchExpr
     }
 
-    // tokenize
-    tokenize = SizzleMini.tokenize = function() {
-        // ...
+    // createCache
+    function createCache() {
+        var keys = [];
+
+        function cache(key, value) {
+            if(keys,push(key + " ") > Expr.cacheLength) {
+                delete cache[keys.shift()];
+            }
+
+            return (cache[key + " "] = value);
+        }
+
+        return cache;
     }
+
+
+    // tokenize
+    tokenize = SizzleMini.tokenize = function(selector, parseOnly) {
+        var matched,
+            match,
+            tokens,
+            type,
+            soFar,
+            groups,
+            preFilters,
+            cached = tokenCache[selector + " "];
+        if(cached) {
+            return parseOnly ? 0 : cached.slice(0);
+        }
+
+        soFar = selector;
+        groups = [];
+        preFilters = Expr.preFilters;
+
+        while(soFar) {
+
+            // comma and first run
+            if(!matched || (match = rcomma.exec(soFar))) {
+                if(match) {
+                    // don't consume trailing commas as valid
+                    soFar = soFar.slice(match[0].length) || soFar;
+                }
+                groups.push((tokens = []));
+            }
+
+            matched = false;
+
+            // combinators
+            if((match = rcombinators.exec(soFar))) {
+                matched = match.shift();
+                tokens.push({
+                    value: matched,
+
+                    // cast descendant combinators to space
+                    type: match[0].replace(rtrim, " ")
+                });
+
+                soFar = soFar.slice(matched.length);
+            }
+
+            // filters
+            for(type in Expr.filter) {
+                if((match = matchExpr[type].exec(soFar)) &&
+                    (!preFilters[type]) ||
+                    (match = preFilters[type](match))) {
+
+                        matched = match.shift();
+                        tokens.push({
+                            value: matched,
+                            type:type,
+                            matches: match
+                        });
+                        
+                        soFar = soFar.slice(matched.length);
+                    }
+            }
+
+            if(!matched) {
+                break;
+            }
+        // end while
+        }
+
+        // return the length of the invalid excess
+        // if we're just parsing
+        // otherwise, throw an error or return tokens
+        return parseOnly 
+            ? soFar.length
+            : soFar
+                ? SizzleMini.error(selector)
+                // cache the tokens
+                : tokenCache(selector, groups).slice(0);
+                
+    };
 
     // a low-level selection function works weith sizzle's compiled
     // selector functions
@@ -877,7 +1077,7 @@
         );
 
         return results;
-    }
+    };
 
     // initialize against the default document
     setDocument();
